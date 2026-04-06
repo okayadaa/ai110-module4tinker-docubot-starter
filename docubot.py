@@ -9,6 +9,68 @@ Core DocuBot class responsible for:
 
 import os
 import glob
+import string
+
+
+NO_INFO_RESPONSE = "I'm unsure. I can't provide any info"
+
+
+STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "if",
+    "then",
+    "else",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "do",
+    "does",
+    "did",
+    "what",
+    "whats",
+    "who",
+    "when",
+    "where",
+    "why",
+    "how",
+    "can",
+    "could",
+    "should",
+    "would",
+    "will",
+    "this",
+    "that",
+    "these",
+    "those",
+    "i",
+    "you",
+    "we",
+    "they",
+    "it",
+    "my",
+    "your",
+    "our",
+    "their",
+}
 
 class DocuBot:
     def __init__(self, docs_folder="docs", llm_client=None):
@@ -24,6 +86,21 @@ class DocuBot:
 
         # Build a retrieval index (implemented in Phase 1)
         self.index = self.build_index(self.documents)
+
+    def _tokenize(self, text, remove_stopwords=False):
+        """
+        Lowercase and tokenize text by whitespace with punctuation stripped.
+        Optionally remove stopwords to reduce weak keyword matches.
+        """
+        tokens = []
+        for raw_word in text.lower().split():
+            token = raw_word.strip(string.punctuation)
+            if not token:
+                continue
+            if remove_stopwords and token in STOPWORDS:
+                continue
+            tokens.append(token)
+        return tokens
 
     # -----------------------------------------------------------
     # Document Loading
@@ -63,8 +140,20 @@ class DocuBot:
         Keep this simple: split on whitespace, lowercase tokens,
         ignore punctuation if needed.
         """
+
         index = {}
-        # TODO: implement simple indexing
+        for filename, text in documents:
+            # Track tokens already seen in this document so each filename
+            # appears at most once per token.
+            seen_tokens = set()
+
+            for token in self._tokenize(text):
+                if not token or token in seen_tokens:
+                    continue
+
+                seen_tokens.add(token)
+                index.setdefault(token, []).append(filename)
+
         return index
 
     # -----------------------------------------------------------
@@ -82,7 +171,11 @@ class DocuBot:
         - Return the count as the score
         """
         # TODO: implement scoring
-        return 0
+
+        query_tokens = set(self._tokenize(query, remove_stopwords=True))
+        text_tokens = set(self._tokenize(text))
+        score = len(query_tokens & text_tokens)
+        return score
 
     def retrieve(self, query, top_k=3):
         """
@@ -93,7 +186,28 @@ class DocuBot:
         """
         results = []
         # TODO: implement retrieval logic
-        return results[:top_k]
+        query_tokens = set(self._tokenize(query, remove_stopwords=True))
+
+        # If nothing meaningful remains after stopword filtering,
+        # retrieval should refuse instead of returning arbitrary snippets.
+        if not query_tokens:
+            return []
+
+        candidate_filenames = set()
+        for token in query_tokens:
+            for filename in self.index.get(token, []):
+                candidate_filenames.add(filename)  
+
+        for filename, text in self.documents:
+            if filename in candidate_filenames:
+                score = self.score_document(query, text)
+                coverage = score / len(query_tokens)
+                if score >= 2 or coverage >= 0.5:
+                    results.append((filename, text, score))
+
+        results.sort(key=lambda x: x[2], reverse=True)
+        return [(filename, text) for filename, text, _ in results[:top_k]]
+    
 
     # -----------------------------------------------------------
     # Answering Modes
@@ -102,16 +216,22 @@ class DocuBot:
     def answer_retrieval_only(self, query, top_k=3):
         """
         Phase 1 retrieval only mode.
-        Returns raw snippets and filenames with no LLM involved.
+        Returns short snippets and filenames with no LLM involved.
         """
         snippets = self.retrieve(query, top_k=top_k)
 
         if not snippets:
-            return "I do not know based on these docs."
-
+            return NO_INFO_RESPONSE
+        ## FIXED: added formatting to make it more readable and concise
         formatted = []
         for filename, text in snippets:
-            formatted.append(f"[{filename}]\n{text}\n")
+            # Keep output concise by showing only a small preview per file.
+            non_empty_lines = [line.strip() for line in text.splitlines() if line.strip()]
+            preview = "\n".join(non_empty_lines[:4])
+            max_chars = 500
+            if len(preview) > max_chars:
+                preview = preview[:max_chars].rstrip() + "..."
+            formatted.append(f"[{filename}]\n{preview}\n")
 
         return "\n---\n".join(formatted)
 
@@ -129,7 +249,7 @@ class DocuBot:
         snippets = self.retrieve(query, top_k=top_k)
 
         if not snippets:
-            return "I do not know based on these docs."
+            return NO_INFO_RESPONSE
 
         return self.llm_client.answer_from_snippets(query, snippets)
 
