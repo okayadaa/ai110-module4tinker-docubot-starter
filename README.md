@@ -75,6 +75,10 @@ You will primarily work in:
 
 ---
 
+## Relflection:
+
+The core concept that students need to understand is understanding the distinction between naive generation, retrieval only, and RAG. Based on experimenting how retrieval and generation complement each other. I believe students are most likely to struggle in certain edge cases such as the answers can be unrelated to the question. It should return "I do not know". However, AI was helpful with elaborating the structure in docubot file. Explaining how each mode should operate ideally. One part I could mention that AI was misleading is when implementing code, it added extra functions to the code when all it needed to do was adjust one function. All the extra functions have be tracked and needs to be tideous before adding it to the code. In addtion, one way I would guide the student without giving an answer is define and understand the distinction between retrieval and RAG. And continue experimenting CLI by asking more questions and observe the given answers. Try to keep track any edge cases or incorrect results.   
+
 ## Requirements
 
 - Python 3.9+
